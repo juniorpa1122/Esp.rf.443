@@ -47,6 +47,7 @@ const int knownFreqCount = sizeof(knownFrequencies) / sizeof(knownFrequencies[0]
 RCSwitch mySwitch = RCSwitch();
 
 // --- WiFi Configuration ---
+// Nie zapomnij zmienić na swoje dane! / Don't forget to change to your own credentials!
 const char* ssid     = "YOUR_SSID";
 const char* password = "YOUR_PASSWORD";
 
