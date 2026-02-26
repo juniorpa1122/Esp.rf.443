@@ -1,0 +1,7 @@
+# Arduino build artefacts
+*.bin
+*.elf
+build/
+
+# Private credentials – never commit these
+secrets.h
