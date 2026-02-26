@@ -1,0 +1,10 @@
+# Arduino build artefacts
+*.bin
+*.elf
+build/
+
+# Private credentials – never commit these
+secrets.h
+
+# CodeQL analysis artefacts
+_codeql_detected_source_root
