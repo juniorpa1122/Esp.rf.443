@@ -8,7 +8,7 @@ An all-in-one ESP32 firmware that combines:
 - **433 MHz Receiver** – captures and stores up to 10 OOK/ASK codes
 - **433 MHz Replay** – retransmits any stored code on demand
 
-All output is shown on a **240 × 240 ST7789 TFT** display, navigated with three push-buttons.
+All output is shown on a **240 × 240 ST7789 TFT** display, navigated with four push-buttons.
 
 ---
 
@@ -49,7 +49,8 @@ All output is shown on a **240 × 240 ST7789 TFT** display, navigated with three
 |--------|-----------|-------|
 | UP     | 35        | External 10 kΩ pull-up to 3.3 V required (GPIO 35 is input-only) |
 | DOWN   | 34        | External 10 kΩ pull-up to 3.3 V required (GPIO 34 is input-only) |
-| SELECT | 32        | Uses internal pull-up |
+| SELECT | 32        | Uses internal pull-up – confirms / sends in submenus |
+| BACK   | 33        | Uses internal pull-up – exits any submenu back to main menu |
 
 ---
 
@@ -84,30 +85,31 @@ pio device monitor # serial monitor
 1. Power on the ESP32 – the **splash screen** appears for 2 seconds.
 2. The **main menu** is shown with 5 options.
 3. Use **UP / DOWN** to highlight an option, then press **SELECT** to enter it.
+4. Press **BACK** from any submenu to return to the main menu.
 
 ### WiFi Scan
 Scans all 2.4 GHz channels and lists SSIDs with signal strength (dBm).  
-Press **SELECT** to return to the menu.
+Press **BACK** to return to the menu.
 
 ### BT Scan
 Performs a 5-second active BLE scan and lists device names (or MAC addresses) with RSSI.  
-Press **SELECT** to return to the menu.
+Press **BACK** to return to the menu.
 
 ### 433 Jammer
 Continuously transmits random 24-bit codes to saturate the 433 MHz band.  
-Press **SELECT** to stop and return to the menu.
+Press **BACK** to stop and return to the menu.
 
 > ⚠️ **Legal notice** – intentional radio jamming is illegal in most countries. Use only in an RF-shielded environment and only for legitimate testing purposes.
 
 ### 433 Receive
 Listens on the 433 MHz receiver for OOK/ASK signals.  
 Each unique received code (value, bit-length, protocol) is stored in RAM (up to 10 codes).  
-Press **SELECT** to stop and return to the menu.
+Press **BACK** to stop and return to the menu.
 
 ### 433 Replay
 Browse the stored codes with **UP / DOWN**.  
-Press **SELECT** (short press) to retransmit the selected code.  
-Hold **SELECT** for 2 seconds to return to the menu.
+Press **SELECT** to retransmit the selected code.  
+Press **BACK** to return to the menu.
 
 ---
 

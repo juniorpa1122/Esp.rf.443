@@ -23,9 +23,10 @@
  *   433 MHz RX DATA | GPIO 16
  *   433 MHz TX DATA | GPIO 17
  *
- *   Button UP     | GPIO 35  (pulled-up, active LOW)
- *   Button DOWN   | GPIO 34  (pulled-up, active LOW)
- *   Button SELECT | GPIO 32  (pulled-up, active LOW)
+ *   Button UP     | GPIO 35  (pulled-up, active LOW – external 10 kΩ to 3.3 V)
+ *   Button DOWN   | GPIO 34  (pulled-up, active LOW – external 10 kΩ to 3.3 V)
+ *   Button SELECT | GPIO 32  (active LOW – internal pull-up enabled)
+ *   Button BACK   | GPIO 33  (active LOW – internal pull-up enabled)
  *
  * Libraries required (install via Arduino Library Manager or platformio.ini):
  *   - Adafruit ST7789  (Adafruit)
@@ -56,6 +57,9 @@
 #define BTN_UP     35
 #define BTN_DOWN   34
 #define BTN_SELECT 32
+#define BTN_BACK   33
+
+#define DEBOUNCE_MS 50UL
 
 // ---------------------------------------------------------------------------
 // Display & RF objects
@@ -113,15 +117,60 @@ int menuIndex  = 0;
 #define JAMMER_MASK_24BIT 0x00FFFFFFUL
 
 // ---------------------------------------------------------------------------
-// Helper: button state
+// Button debouncing
+//
+// KEY RULE: static Button members may NOT be initialised inside the struct
+// body because the type is still incomplete at that point (compiler error:
+// "in-class initialization of static data member of incomplete type").
+// Instances must be defined as ordinary global variables AFTER the struct.
+//
+// Usage:
+//   pollBtn(b) – call once per loop; returns true ONLY on the press edge.
+//   isHeld(b)  – returns true while the button is stably held down.
+//   waitRelease(b) – blocks until the button is released.
 // ---------------------------------------------------------------------------
-bool btnDown(int pin) {
-  return digitalRead(pin) == LOW;
+struct Button {
+  uint8_t       pin;           // GPIO number
+  int           stableState;   // last confirmed (debounced) logic level
+  int           rawState;      // last raw digitalRead result
+  unsigned long lastEdgeMs;    // millis() timestamp of the last raw-state change
+};
+
+// Global instances – defined OUTSIDE the struct body (type is complete here)
+Button btnUp   = { BTN_UP,     HIGH, HIGH, 0 };
+Button btnDown = { BTN_DOWN,   HIGH, HIGH, 0 };
+Button btnSel  = { BTN_SELECT, HIGH, HIGH, 0 };
+Button btnBack = { BTN_BACK,   HIGH, HIGH, 0 };
+
+// Poll one button; returns true the moment it transitions to pressed (LOW).
+// Call once per button per loop iteration for reliable edge detection.
+// NOTE: unsigned long subtraction is used intentionally – it wraps correctly
+// when millis() overflows (~49 days), which is the standard Arduino pattern.
+bool pollBtn(Button &b) {
+  int raw = digitalRead(b.pin);
+  unsigned long now = millis();
+  if (raw != b.rawState) {
+    b.rawState    = raw;
+    b.lastEdgeMs  = now;
+  }
+  if ((now - b.lastEdgeMs) >= DEBOUNCE_MS && b.rawState != b.stableState) {
+    bool pressed  = (b.rawState == LOW);
+    b.stableState = b.rawState;
+    return pressed;   // true only on the falling edge (press event)
+  }
+  return false;
 }
 
-void waitRelease(int pin) {
-  while (digitalRead(pin) == LOW) delay(10);
-  delay(50);
+// Returns true while the button is stably held down.
+bool isHeld(Button &b) {
+  pollBtn(b);
+  return b.stableState == LOW;
+}
+
+// Block until the button is released, then add a short settling delay.
+void waitRelease(Button &b) {
+  while (isHeld(b)) delay(10);
+  delay(30);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,9 +254,9 @@ void doWifiScan() {
 
   tft.setTextColor(C_WARN);
   tft.setCursor(4, tft.height() - 14);
-  tft.print("[SELECT] Back");
-  while (!btnDown(BTN_SELECT)) delay(30);
-  waitRelease(BTN_SELECT);
+  tft.print("[BACK] Return to menu");
+  while (!isHeld(btnBack)) delay(30);
+  waitRelease(btnBack);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,9 +306,9 @@ void doBTScan() {
 
   tft.setTextColor(C_WARN);
   tft.setCursor(4, tft.height() - 14);
-  tft.print("[SELECT] Back");
-  while (!btnDown(BTN_SELECT)) delay(30);
-  waitRelease(BTN_SELECT);
+  tft.print("[BACK] Return to menu");
+  while (!isHeld(btnBack)) delay(30);
+  waitRelease(btnBack);
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +329,7 @@ void doRFJammer() {
   tft.println("433MHz band...");
   tft.setTextColor(C_INFO);
   tft.setCursor(4, 108);
-  tft.println("Hold [SELECT] to stop");
+  tft.println("[BACK] Stop jammer");
 
   mySwitch.enableTransmit(RF_TX_PIN);
   mySwitch.setRepeatTransmit(1);
@@ -288,7 +337,7 @@ void doRFJammer() {
   unsigned long lastUpdate = millis();
   unsigned long pktCount   = 0;
 
-  while (!btnDown(BTN_SELECT)) {
+  while (!isHeld(btnBack)) {
     // Send rapidly varying random codes to saturate the 433 MHz channel
     mySwitch.send(random(JAMMER_MASK_24BIT), 24);
     pktCount++;
@@ -302,7 +351,7 @@ void doRFJammer() {
   }
 
   mySwitch.disableTransmit();
-  waitRelease(BTN_SELECT);
+  waitRelease(btnBack);
 }
 
 // ---------------------------------------------------------------------------
@@ -321,11 +370,11 @@ void doRFReceive() {
   tft.println("Press remote now...");
   tft.setTextColor(C_WARN);
   tft.setCursor(4, tft.height() - 14);
-  tft.print("[SELECT] Back");
+  tft.print("[BACK] Return to menu");
 
   mySwitch.enableReceive(RF_RX_PIN);
 
-  while (!btnDown(BTN_SELECT)) {
+  while (!isHeld(btnBack)) {
     if (mySwitch.available()) {
       unsigned long val   = mySwitch.getReceivedValue();
       unsigned int  bits  = mySwitch.getReceivedBitlength();
@@ -361,13 +410,13 @@ void doRFReceive() {
 
       tft.setTextColor(C_WARN);
       tft.setCursor(4, tft.height() - 14);
-      tft.print("[SELECT] Back");
+      tft.print("[BACK] Return to menu");
     }
     delay(30);
   }
 
   mySwitch.disableReceive();
-  waitRelease(BTN_SELECT);
+  waitRelease(btnBack);
 }
 
 // ---------------------------------------------------------------------------
@@ -384,11 +433,11 @@ void drawReplayScreen(int idx) {
   tft.printf("Protocol:%u\n",  rfStore[idx].protocol);
   tft.setTextColor(C_SELECT);
   tft.setCursor(4, 108);
-  tft.println("UP/DOWN = select");
-  tft.println("SELECT  = send");
+  tft.println("UP/DOWN = select code");
+  tft.println("SELECT  = send code");
   tft.setTextColor(C_WARN);
   tft.setCursor(4, tft.height() - 14);
-  tft.print("Hold SELECT 2s = Back");
+  tft.print("[BACK] Return to menu");
 }
 
 void doRFReplay() {
@@ -401,66 +450,52 @@ void doRFReplay() {
     tft.println("No codes stored!");
     tft.println("Use '433 Receive' first.");
     tft.setCursor(4, tft.height() - 14);
-    tft.print("[SELECT] Back");
-    while (!btnDown(BTN_SELECT)) delay(30);
-    waitRelease(BTN_SELECT);
+    tft.print("[BACK] Return to menu");
+    while (!isHeld(btnBack)) delay(30);
+    waitRelease(btnBack);
     return;
   }
 
-  int replayIdx    = 0;
-  bool selHeld     = false;
-  unsigned long selStart = 0;
+  int replayIdx = 0;
 
   mySwitch.enableTransmit(RF_TX_PIN);
   mySwitch.setRepeatTransmit(3);
   drawReplayScreen(replayIdx);
 
   while (true) {
-    // UP
-    if (btnDown(BTN_UP)) {
+    // UP – previous code
+    if (pollBtn(btnUp)) {
       replayIdx = (replayIdx - 1 + rfCodeCount) % rfCodeCount;
       drawReplayScreen(replayIdx);
-      while (btnDown(BTN_UP)) delay(10);
-      delay(50);
     }
-    // DOWN
-    if (btnDown(BTN_DOWN)) {
+    // DOWN – next code
+    if (pollBtn(btnDown)) {
       replayIdx = (replayIdx + 1) % rfCodeCount;
       drawReplayScreen(replayIdx);
-      while (btnDown(BTN_DOWN)) delay(10);
-      delay(50);
     }
-    // SELECT: short = send, long (2 s) = back
-    if (btnDown(BTN_SELECT)) {
-      if (!selHeld) {
-        selHeld  = true;
-        selStart = millis();
-      }
-      if (millis() - selStart >= 2000) {
-        while (btnDown(BTN_SELECT)) delay(10);
-        break;  // long press → back
-      }
-    } else {
-      if (selHeld) {
-        // Short press released → send
-        mySwitch.setProtocol(rfStore[replayIdx].protocol);
-        mySwitch.send(rfStore[replayIdx].value, rfStore[replayIdx].bits);
+    // SELECT – send selected code
+    if (pollBtn(btnSel)) {
+      mySwitch.setProtocol(rfStore[replayIdx].protocol);
+      mySwitch.send(rfStore[replayIdx].value, rfStore[replayIdx].bits);
 
-        // Visual feedback
-        tft.fillRect(4, 86, tft.width() - 8, 16, C_SELECT);
-        tft.setCursor(50, 88);
-        tft.setTextColor(ST77XX_BLACK);
-        tft.setTextSize(1);
-        tft.print("  ** SENT! **");
-        delay(600);
-        drawReplayScreen(replayIdx);
-        selHeld = false;
-      }
+      // Visual feedback
+      tft.fillRect(4, 86, tft.width() - 8, 16, C_SELECT);
+      tft.setCursor(50, 88);
+      tft.setTextColor(ST77XX_BLACK);
+      tft.setTextSize(1);
+      tft.print("  ** SENT! **");
+      delay(600);
+      drawReplayScreen(replayIdx);
+    }
+    // BACK – return to menu
+    if (pollBtn(btnBack)) {
+      break;
     }
     delay(20);
   }
 
   mySwitch.disableTransmit();
+  waitRelease(btnBack);
 }
 
 // ===========================================================================
@@ -471,10 +506,11 @@ void setup() {
 
   // GPIO 34 and 35 are input-only pins with no internal pull-up;
   // external 10 kΩ pull-ups to 3.3 V are required on those lines.
-  // GPIO 32 supports INPUT_PULLUP normally.
+  // GPIO 32 and 33 support INPUT_PULLUP normally.
   pinMode(BTN_UP,     INPUT);         // GPIO 35 – external pull-up required
   pinMode(BTN_DOWN,   INPUT);         // GPIO 34 – external pull-up required
   pinMode(BTN_SELECT, INPUT_PULLUP);  // GPIO 32 – internal pull-up enabled
+  pinMode(BTN_BACK,   INPUT_PULLUP);  // GPIO 33 – internal pull-up enabled
 
   // TFT
   tft.init(240, 240);
@@ -503,20 +539,15 @@ void setup() {
 // ===========================================================================
 void loop() {
   if (currentScreen == SCR_MAIN) {
-    if (btnDown(BTN_UP)) {
+    if (pollBtn(btnUp)) {
       menuIndex = (menuIndex - 1 + MAIN_MENU_COUNT) % MAIN_MENU_COUNT;
       drawMainMenu();
-      while (btnDown(BTN_UP)) delay(10);
-      delay(50);
     }
-    if (btnDown(BTN_DOWN)) {
+    if (pollBtn(btnDown)) {
       menuIndex = (menuIndex + 1) % MAIN_MENU_COUNT;
       drawMainMenu();
-      while (btnDown(BTN_DOWN)) delay(10);
-      delay(50);
     }
-    if (btnDown(BTN_SELECT)) {
-      waitRelease(BTN_SELECT);
+    if (pollBtn(btnSel)) {
       switch (menuIndex) {
         case 0: doWifiScan();    break;
         case 1: doBTScan();      break;
